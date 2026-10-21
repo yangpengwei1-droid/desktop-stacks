@@ -1,5 +1,8 @@
 ﻿$ErrorActionPreference='Stop'
 $root=$PSScriptRoot;$work=Join-Path $root ('work\tests-'+[guid]::NewGuid().ToString('N'))
+$manifest=[xml](Get-Content -LiteralPath (Join-Path $root 'src\app.manifest') -Raw -Encoding UTF8)
+$supported=@($manifest.SelectNodes('//*[local-name()="supportedOS"]')|ForEach-Object {$_.Id})
+if($supported -notcontains '{4a2f28e3-53b9-4441-ba9c-d69d4a4a6e38}' -or $supported -notcontains '{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}'){throw 'The application manifest must declare supported modern Windows versions.'}
 [void][IO.Directory]::CreateDirectory($work)
 $binary=Join-Path $work 'DesktopStacks'
 & (Join-Path $root 'Build.ps1') -OutputDirectory $binary

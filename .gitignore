@@ -22,3 +22,7 @@ desktop.ini
 Thumbs.db
 .env
 .env.*
+
+**/桌面入口状态.json
+**/桌面视图状态.txt
+**/旧属性恢复结果-*.json

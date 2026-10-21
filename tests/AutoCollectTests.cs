@@ -28,26 +28,26 @@ class AutoCollectTests {
   Assert(NativeShortcut.ReadTarget(shortcut)==original&&NativeShortcut.ReadArguments(shortcut)=="保留参数","Unicode快捷方式目标与参数可回读");
   using(var collector=new DesktopAutoCollector(app,desktop,new[]{original},TimeSpan.FromMilliseconds(60))) {
    collector.Configure(true,"左边栏",null);
-   Assert(!collector.ScanNow()&&!Hidden(file),"首次检测不抢先隐藏，等待文件保存稳定");Scan(collector);
+   Assert(!collector.ScanNow()&&!Hidden(file),"首次检测等待文件保存稳定，不修改原属性");Scan(collector);
    var entries=DesktopAutoCollector.ReadEntries(app);Assert(entries.Count==3,"文件、目录和原快捷方式自动收纳");
    Assert(entries.All(e=>e.group=="左边栏"&&File.Exists(e.link)),"新入口只追加到指定分区");
-   Assert(Hash(file).SequenceEqual(hash)&&File.GetLastWriteTimeUtc(file)==written&&Hidden(file)&&Directory.Exists(folder),"原文件内容、修改时间和路径保持");
+   Assert(Hash(file).SequenceEqual(hash)&&File.GetLastWriteTimeUtc(file)==written&&!Hidden(file)&&Directory.Exists(folder),"原文件内容、修改时间和路径保持");
    Assert(Hash(shortcut).SequenceEqual(shortcutHash),"原快捷方式字节及参数不变");
    Assert(File.ReadAllText(conflict)=="不得覆盖已有导航"&&entries.Single(e=>e.path==file).link!=conflict,"同名导航避免覆盖");
    Assert(!Hidden(temp)&&!Hidden(part)&&!Hidden(office)&&!Hidden(original)&&!entries.Any(e=>e.path==secret||e.path==system),"跳过临时、未完成下载、系统、原隐藏和已有项目");
    string busy=Path.Combine(desktop,"正在保存.txt");
-   using(var writer=new FileStream(busy,FileMode.CreateNew,FileAccess.Write,FileShare.Read)){writer.WriteByte(65);writer.Flush();Scan(collector);Assert(!Hidden(busy),"写入中的文件不隐藏");}
-   Scan(collector);Assert(Hidden(busy),"写入结束后收纳");
-   collector.Configure(false,null,null);string paused=Path.Combine(desktop,"暂停时新文件.txt");File.WriteAllText(paused,"pause");Scan(collector);Assert(!Hidden(paused),"暂停期间不收纳和隐藏");
+   using(var writer=new FileStream(busy,FileMode.CreateNew,FileAccess.Write,FileShare.Read)){writer.WriteByte(65);writer.Flush();Scan(collector);Assert(!Hidden(busy),"写入中的文件不修改属性");}
+   Scan(collector);Assert(DesktopAutoCollector.ReadEntries(app).Any(e=>e.path==busy)&&!Hidden(busy),"写入结束后收纳且原文件保持可见");
+   collector.Configure(false,null,null);string paused=Path.Combine(desktop,"暂停时新文件.txt");File.WriteAllText(paused,"pause");Scan(collector);Assert(!Hidden(paused)&&!DesktopAutoCollector.ReadEntries(app).Any(e=>e.path==paused),"暂停期间不收纳");
    collector.Configure(true,null,null);
   }
   string renamed=Path.Combine(desktop,"合同已改名.txt");File.Move(file,renamed);
   using(var collector=new DesktopAutoCollector(app,desktop,new[]{original},TimeSpan.FromMilliseconds(60))) {
    Scan(collector);var entry=DesktopAutoCollector.ReadEntries(app).Single(e=>e.path==renamed);Assert(File.Exists(entry.link)&&!DesktopAutoCollector.ReadEntries(app).Any(e=>e.path==file),"停机后改名通过Windows文件标识恢复原入口");
-   File.SetAttributes(renamed,FileAttributes.Normal);File.WriteAllText(renamed,"同名另存更新");Scan(collector);Assert(Hidden(renamed)&&File.ReadAllText(renamed)=="同名另存更新","同名另存后入口保持并重新隐藏");
+   File.SetAttributes(renamed,FileAttributes.Normal);File.WriteAllText(renamed,"同名另存更新");Scan(collector);Assert(!Hidden(renamed)&&File.ReadAllText(renamed)=="同名另存更新","同名另存后入口保持且不隐藏原件");
    string deletedLink=entry.link;File.Delete(renamed);collector.ScanNow();Thread.Sleep(6200);collector.ScanNow();Assert(!DesktopAutoCollector.ReadEntries(app).Any(e=>e.path==renamed)&&!File.Exists(deletedLink),"原件被用户删除后清理本工具入口");
    collector.Configure(null,"中间栏",null);string middle=Path.Combine(desktop,"更换分区后.txt");File.WriteAllText(middle,"middle");Scan(collector);Assert(DesktopAutoCollector.ReadEntries(app).Single(e=>e.path==middle).group=="中间栏","改变默认分区只影响后来新增项目");
-   File.WriteAllText(Path.Combine(app,"自动收纳记录.json"),"invalid");string safe=Path.Combine(desktop,"异常保护.txt");File.WriteAllText(safe,"safe");bool rejected=false;try{Scan(collector);}catch{rejected=true;}Assert(rejected&&!Hidden(safe),"恢复记录损坏时停止隐藏并保留原件");
+   File.WriteAllText(Path.Combine(app,"自动收纳记录.json"),"invalid");string safe=Path.Combine(desktop,"异常保护.txt");File.WriteAllText(safe,"safe");bool rejected=false;try{Scan(collector);}catch{rejected=true;}Assert(rejected&&!Hidden(safe),"记录损坏时停止收纳并保留原件");
   }
   File.WriteAllText(Path.Combine(root,"隔离测试结果.json"),new JavaScriptSerializer().Serialize(new{passed=passed.Count,checks=passed,businessActionsExecuted=false}),Encoding.UTF8);Console.WriteLine("PASS "+passed.Count);return 0;
  }

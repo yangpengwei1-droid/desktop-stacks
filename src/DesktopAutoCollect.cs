@@ -16,7 +16,7 @@ namespace DesktopStacks {
   public int attributes; public bool hidden;
  }
  public class DesktopAutoState { public int version=1; public List<DesktopAutoEntry> entries=new List<DesktopAutoEntry>(); }
- // Indexes and shortcuts only. The only write to an original is its Hidden attribute.
+ // Indexes and shortcuts only. Original attributes remain unchanged.
  public sealed class DesktopAutoCollector : IDisposable {
   public const string MutexName="Local\\DesktopStacksAutoStore";
   readonly string app,desktop,folders,stateFile,configFile;
@@ -85,7 +85,7 @@ namespace DesktopStacks {
     if(!Enter(mutex))return false;
     try {
      var config=ReadConfig(app);if(!config.enabled||!ValidGroup(config.group))return false;
-     var state=ReadJson(stateFile,new DesktopAutoState());if(state==null||state.entries==null)throw new IOException("自动收纳记录不可用，未隐藏任何新文件。");
+     var state=ReadJson(stateFile,new DesktopAutoState());if(state==null||state.entries==null)throw new IOException("自动收纳记录不可用，未修改任何原文件。");
      foreach(var entry in state.entries)if(!IsDesktopPath(entry.path)||!IsOwnLink(entry.link))throw new IOException("收纳记录路径不在指定范围，已停止处理。");
      string[] paths=Directory.GetFileSystemEntries(desktop);var present=new HashSet<string>(paths,StringComparer.OrdinalIgnoreCase);
      var byPath=state.entries.ToDictionary(e=>e.path,StringComparer.OrdinalIgnoreCase);
@@ -97,7 +97,7 @@ namespace DesktopStacks {
       DesktopAutoEntry entry;byPath.TryGetValue(path,out entry);
       FileAttributes attributes;try{attributes=File.GetAttributes(path);}catch(IOException){continue;}catch(UnauthorizedAccessException){continue;}
       if((attributes&FileAttributes.System)!=0)continue;
-      if(entry!=null&&((attributes&FileAttributes.Hidden)!=0)&&File.Exists(entry.link))continue;
+      if(entry!=null&&File.Exists(entry.link)){string currentIdentity=Identity(path);if(entry.identity!=currentIdentity){entry.identity=currentIdentity;changed=true;}continue;}
       string identity=Identity(path);
       if(entry==null&&!string.IsNullOrEmpty(identity))byIdentity.TryGetValue(identity,out entry);
       if(entry==null&&(attributes&FileAttributes.Hidden)!=0)continue;
@@ -108,12 +108,11 @@ namespace DesktopStacks {
        entry.link=ChooseLink(path,entry.group);entry.icon=Path.Combine(app,"原图标缓存","自动_"+entry.id+".png");
        CreateNavigation(path,entry.link);try{ExtractIcon(path,entry.icon);}catch(Exception ex){ReportError(ex);}state.entries.Add(entry);
        try{SaveJson(stateFile,state);}catch{state.entries.Remove(entry);if(File.Exists(entry.link))File.Delete(entry.link);throw;}
-       additions++;changed=true; // Recovery record and a usable shortcut exist before hiding.
+       additions++;changed=true; // Navigation is persisted before the view refreshes.
       }else if(!string.Equals(entry.path,path,StringComparison.Ordinal)) {
        string oldLink=entry.link;string newLink=ChooseLink(path,entry.group);CreateNavigation(path,newLink);
        entry.path=path;entry.link=newLink;entry.identity=identity;SaveJson(stateFile,state);retire.Add(oldLink);changed=true;
       }else if(!File.Exists(entry.link)) {CreateNavigation(path,entry.link);changed=true;}
-      if((attributes&FileAttributes.Hidden)==0){File.SetAttributes(path,attributes|FileAttributes.Hidden);Notify(path);changed=true;}
       }catch(IOException ex){ReportError(ex);}catch(UnauthorizedAccessException ex){ReportError(ex);}
      }
      // A missed rename while the app was closed is matched by Windows file identity above.

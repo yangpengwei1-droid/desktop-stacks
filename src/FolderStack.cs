@@ -43,6 +43,7 @@ namespace DesktopStacks {
   readonly ScrollViewer scroller;
   readonly Dictionary<string,OriginalIcon> originalIcons;
   readonly DesktopAutoCollector automatic;
+  readonly DesktopPresentation presentation;
   readonly Dictionary<string,string> originalStamps=new Dictionary<string,string>();
   readonly HashSet<string> refreshingIcons=new HashSet<string>();
   readonly SemaphoreSlim iconWorker=new SemaphoreSlim(1);
@@ -70,6 +71,7 @@ namespace DesktopStacks {
    settings=LoadSettings();
    originalIcons=File.Exists(System.IO.Path.Combine(baseDir,"原图标来源.json"))?json.Deserialize<Dictionary<string,OriginalIcon>>(File.ReadAllText(System.IO.Path.Combine(baseDir,"原图标来源.json"),Encoding.UTF8)):new Dictionary<string,OriginalIcon>();
    foreach(var reference in originalIcons.Values)originalStamps[reference.source]=reference.stamp;
+   presentation=new DesktopPresentation(baseDir,delegate{Toggle();});
    automatic=new DesktopAutoCollector(baseDir,Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),originalIcons.Values.Select(v=>v.source),TimeSpan.FromSeconds(3));
    automatic.Changed=delegate{if(!Dispatcher.HasShutdownStarted)Dispatcher.BeginInvoke(new Action(delegate{if(IsVisible&&!menuOpen&&!closing&&!string.IsNullOrEmpty(CurrentPath)){double offset=scroller.VerticalOffset;ShowPage(CurrentPath,false);FinishMotion();UpdateLayout();scroller.ScrollToVerticalOffset(offset);}}));};
    Width=BaseWidth;Height=BaseHeight;WindowStyle=WindowStyle.None;ResizeMode=ResizeMode.NoResize;
@@ -105,8 +107,8 @@ namespace DesktopStacks {
    ReadPlacementContext();
   }
   Settings LoadSettings(){try{return json.Deserialize<Settings>(File.ReadAllText(System.IO.Path.Combine(baseDir,"设置.json"),Encoding.UTF8))??new Settings();}catch{return new Settings();}}
-  public void StartAutoCollection(){if(!TestMode)automatic.Start();}
-  public void StopAutoCollection(){automatic.Dispose();}
+  public void StartAutoCollection(){if(!TestMode){presentation.Start();automatic.Start();}}
+  public void StopAutoCollection(){automatic.Dispose();presentation.Dispose();}
   static bool IsNamespace(string source){return source!=null&&source.StartsWith("::{",StringComparison.Ordinal)&&source.EndsWith("}",StringComparison.Ordinal);}
   static bool OriginalExists(string source){return IsNamespace(source)||File.Exists(source)||Directory.Exists(source);}
   void SetMode(string value){settings.mode=value;try{File.WriteAllText(System.IO.Path.Combine(baseDir,"设置.json"),json.Serialize(settings),new UTF8Encoding(true));}catch{}ShowPage(CurrentPath,false);}
@@ -131,7 +133,7 @@ namespace DesktopStacks {
   ContextMenu BuildMenu(){
    var m=new ContextMenu{FontFamily=FontFamily,FontSize=13};m.Opened+=delegate{menuOpen=true;};m.Closed+=delegate{menuOpen=false;Dispatcher.BeginInvoke(new Action(delegate{if(!IsActive&&!TestMode&&!captureMode)Dismiss();}),DispatcherPriority.Background);};
    AddMenu(m,"打开收纳文件夹",delegate{Launch(foldersDir);});
-   AddMenu(m,"隐藏已收纳桌面图标",delegate{ChangeLegacy(true);});
+   AddMenu(m,"收起桌面图标（另存为可见）",delegate{ChangeLegacy(true);});
    AddMenu(m,"恢复已收纳桌面图标",delegate{ChangeLegacy(false);});
    m.Items.Add(new Separator());
    var collect=new MenuItem{Header="自动收纳桌面新文件",IsCheckable=true};
@@ -147,11 +149,11 @@ namespace DesktopStacks {
   void ChangeLegacy(bool hide){
    try{
     if(!hide)automatic.Configure(false,null,null);
-    footer.Text=hide?"正在隐藏已收纳图标；公共桌面可能需要Windows确认。":"正在恢复已收纳图标；公共桌面可能需要Windows确认。";
+    footer.Text=hide?"正在收起桌面显示；保存目录保持可见。":"正在恢复桌面显示。";
     string exe=System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),"System32","WindowsPowerShell","v1.0","powershell.exe");
     string arguments="-NoLogo -NoProfile -STA -ExecutionPolicy Bypass -File \""+System.IO.Path.Combine(baseDir,"桌面显示.ps1")+"\" -Action "+(hide?"Hide":"Restore")+" -AllowElevation";
     var process=Process.Start(new ProcessStartInfo(exe,arguments){UseShellExecute=false,CreateNoWindow=true,WindowStyle=ProcessWindowStyle.Hidden});
-    ThreadPool.QueueUserWorkItem(delegate{int code;using(process){process.WaitForExit();code=process.ExitCode;}if(!Dispatcher.HasShutdownStarted)Dispatcher.BeginInvoke(new Action(delegate{footer.Text=code==0?(hide?"已收纳桌面图标已隐藏，原位置未改变。":"已恢复桌面图标并暂停自动收纳，原位置未改变。"):"部分图标未处理，请检查Windows权限或状态记录。";if(code!=0)MessageBox.Show(this,"部分桌面图标未处理。请确认Windows管理员提示；详细结果在本目录桌面显示状态.json。","办公收纳");}));});
+    ThreadPool.QueueUserWorkItem(delegate{int code;using(process){process.WaitForExit();code=process.ExitCode;}if(!Dispatcher.HasShutdownStarted)Dispatcher.BeginInvoke(new Action(delegate{footer.Text=code==0?(hide?"桌面已收起；另存为仍可选择原目录。":"已恢复桌面图标并暂停自动收纳，原位置未改变。"):"部分图标未处理，请检查Windows权限或状态记录。";if(code!=0)MessageBox.Show(this,"桌面显示未完成更新，原文件保持可见；详细结果在本目录桌面显示状态.json。","办公收纳");}));});
    }catch(Exception ex){MessageBox.Show(this,"处理桌面图标失败："+ex.Message,"办公收纳");}
   }
   ImageSource LoadIcon(string path){

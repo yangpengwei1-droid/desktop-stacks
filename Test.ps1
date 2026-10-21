@@ -4,7 +4,7 @@ $root=$PSScriptRoot;$work=Join-Path $root ('work\tests-'+[guid]::NewGuid().ToStr
 $binary=Join-Path $work 'DesktopStacks'
 & (Join-Path $root 'Build.ps1') -OutputDirectory $binary
 $net=Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319'
-& (Join-Path $net 'csc.exe') /nologo /debug+ /target:exe /reference:System.Web.Extensions.dll ('/out:'+(Join-Path $work 'AutoCollectTests.exe')) (Join-Path $root 'src\DesktopAutoCollect.cs') (Join-Path $root 'tests\AutoCollectTests.cs')
+& (Join-Path $net 'csc.exe') /nologo /debug+ /target:exe /reference:System.Web.Extensions.dll ('/out:'+(Join-Path $work 'AutoCollectTests.exe')) (Join-Path $root 'src\DesktopAutoCollect.cs') (Join-Path $root 'src\ShellLink.cs') (Join-Path $root 'tests\AutoCollectTests.cs')
 if($LASTEXITCODE -ne 0){throw 'Collector tests did not compile.'}
 & (Join-Path $work 'AutoCollectTests.exe') (Join-Path $work 'collector') (Join-Path $binary '图标提取.exe')
 if($LASTEXITCODE -ne 0){Get-ChildItem -LiteralPath $work -Recurse -File -Filter '测试失败.txt'|ForEach-Object {Get-Content -LiteralPath $_.FullName -Encoding UTF8};throw 'Collector integration tests failed.'}

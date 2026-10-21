@@ -20,7 +20,7 @@ if($FixtureRoot){
  $layout=@([DesktopLayoutReader]::Read($view,[System.Windows.Forms.SystemInformation]::VirtualScreen.Width)|Sort-Object y,x)
 }
 $entries=[ordered]@{};$icons=[ordered]@{};$columns=[ordered]@{'左边栏'=4;'中间栏'=5;'右边栏'=4};$plan=New-Object 'System.Collections.Generic.List[object]'
-$wsh=New-Object -ComObject WScript.Shell
+[void][Reflection.Assembly]::LoadFrom((Join-Path $AppDirectory 'DesktopStacks.exe'))
 $extract=Join-Path $AppDirectory '图标提取.exe'
 function Export-Icon([string]$Source,[string]$Destination,[bool]$Thumbnail=$false,[int]$Size=48){
  $mode=if($Thumbnail){'thumbnail'}else{'icon'}
@@ -49,9 +49,7 @@ foreach($entry in $layout){
  $linkName=$leaf+'.lnk';$destination=Join-Path (Join-Path $folders $entry.group) $linkName;$suffix=2
  while(Test-Path -LiteralPath $destination){$linkName=$leaf+' ('+$suffix+').lnk';$suffix++;$destination=Join-Path (Join-Path $folders $entry.group) $linkName}
  if(-not $virtual -and [IO.Path]::GetExtension($source) -eq '.lnk'){Copy-Item -LiteralPath $source -Destination $destination}else{
-  $shortcut=$wsh.CreateShortcut($destination)
-  if($virtual){$shortcut.TargetPath=Join-Path $env:SystemRoot 'explorer.exe';$shortcut.Arguments='shell:'+$source}else{$shortcut.TargetPath=$source}
-  $shortcut.Save();[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shortcut)
+  if($virtual){[DesktopStacks.NativeShortcut]::Create($destination,(Join-Path $env:SystemRoot 'explorer.exe'),('shell:'+$source),$null,$null)}else{[DesktopStacks.NativeShortcut]::Create($destination,$source,$null,$null,$null)}
  }
  $sha=[Security.Cryptography.SHA256]::Create();try{$key=([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($source)))).Replace('-','')}finally{$sha.Dispose()}
  $icon=Join-Path $cache ($key.Substring(0,20)+'.png')
@@ -61,13 +59,11 @@ foreach($entry in $layout){
  $entries[$entry.group]+=$linkName
  $plan.Add([pscustomobject]@{source=$source;name=$name;group=$entry.group;virtual=$virtual;x=$entry.x;y=$entry.y})
 }
-[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($wsh)
 $icons|ConvertTo-Json -Depth 5|Set-Content -LiteralPath (Join-Path $AppDirectory '原图标来源.json') -Encoding UTF8
 ConvertTo-Json -InputObject @($plan.ToArray()) -Depth 5|Set-Content -LiteralPath (Join-Path $AppDirectory '桌面分区清单.json') -Encoding UTF8
 @{enabled=$false;group='左边栏';startWithWindows=$false}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $AppDirectory '自动收纳设置.json') -Encoding UTF8
 @{mode='grid';order=$groups;entries=$entries;columns=$columns}|ConvertTo-Json -Depth 6|Set-Content -LiteralPath (Join-Path $AppDirectory '设置.json') -Encoding UTF8
 if(-not $FixtureRoot){
- $wsh=New-Object -ComObject WScript.Shell;$shortcut=$wsh.CreateShortcut((Join-Path $desktop 'Desktop Stacks.lnk'));$shortcut.TargetPath=Join-Path $AppDirectory 'DesktopStacks.exe';$shortcut.WorkingDirectory=$AppDirectory;$shortcut.IconLocation=Join-Path $AppDirectory '入口图标\办公收纳.ico';$shortcut.Save()
- [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shortcut);[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($wsh)
+ [DesktopStacks.NativeShortcut]::Create((Join-Path $desktop 'Desktop Stacks.lnk'),(Join-Path $AppDirectory 'DesktopStacks.exe'),$null,$AppDirectory,(Join-Path $AppDirectory '入口图标\办公收纳.ico'))
 }
 Write-Output ('Initialized '+$plan.Count+' entries. Nothing moved or hidden; auto-collection and login startup are off.')

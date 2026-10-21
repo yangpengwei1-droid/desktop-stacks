@@ -139,12 +139,7 @@ namespace DesktopStacks {
   }
   static void CreateNavigation(string source,string destination) {
    if(Path.GetExtension(source).Equals(".lnk",StringComparison.OrdinalIgnoreCase)){File.Copy(source,destination,false);File.SetAttributes(destination,FileAttributes.Normal);return;}
-   object shell=null,shortcut=null;
-   try {
-    Type type=Type.GetTypeFromProgID("WScript.Shell");shell=Activator.CreateInstance(type);shortcut=type.InvokeMember("CreateShortcut",System.Reflection.BindingFlags.InvokeMethod,null,shell,new object[]{destination});
-    shortcut.GetType().InvokeMember("TargetPath",System.Reflection.BindingFlags.SetProperty,null,shortcut,new object[]{source});
-    shortcut.GetType().InvokeMember("Save",System.Reflection.BindingFlags.InvokeMethod,null,shortcut,null);
-   }finally{if(shortcut!=null)Marshal.FinalReleaseComObject(shortcut);if(shell!=null)Marshal.FinalReleaseComObject(shell);}
+   NativeShortcut.Create(destination,source,null,null,null);
   }
   void ExtractIcon(string source,string destination) {
    string helper=Path.Combine(app,"图标提取.exe");if(!File.Exists(helper))return;
@@ -156,15 +151,7 @@ namespace DesktopStacks {
   void SetLoginStartup(bool enabled) {
    string startup=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Startup),"Desktop Stacks.lnk");
    if(!enabled){if(File.Exists(startup))File.Delete(startup);return;}
-   object shell=null,shortcut=null;
-   try {
-    Type type=Type.GetTypeFromProgID("WScript.Shell");shell=Activator.CreateInstance(type);shortcut=type.InvokeMember("CreateShortcut",System.Reflection.BindingFlags.InvokeMethod,null,shell,new object[]{startup});Type t=shortcut.GetType();
-    t.InvokeMember("TargetPath",System.Reflection.BindingFlags.SetProperty,null,shortcut,new object[]{Path.Combine(app,"DesktopStacks.exe")});
-    t.InvokeMember("Arguments",System.Reflection.BindingFlags.SetProperty,null,shortcut,new object[]{"--background"});
-    t.InvokeMember("WorkingDirectory",System.Reflection.BindingFlags.SetProperty,null,shortcut,new object[]{app});
-    t.InvokeMember("IconLocation",System.Reflection.BindingFlags.SetProperty,null,shortcut,new object[]{Path.Combine(app,"入口图标","办公收纳.ico")});
-    t.InvokeMember("Save",System.Reflection.BindingFlags.InvokeMethod,null,shortcut,null);
-   }finally{if(shortcut!=null)Marshal.FinalReleaseComObject(shortcut);if(shell!=null)Marshal.FinalReleaseComObject(shell);}
+   NativeShortcut.Create(startup,Path.Combine(app,"DesktopStacks.exe"),"--background",app,Path.Combine(app,"入口图标","办公收纳.ico"));
   }
   [StructLayout(LayoutKind.Sequential)] struct FileData { public uint attributes;public System.Runtime.InteropServices.ComTypes.FILETIME created,accessed,written;public uint volume,sizeHigh,sizeLow,links,indexHigh,indexLow; }
   [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern SafeFileHandle CreateFile(string name,uint access,uint share,IntPtr security,uint disposition,uint flags,IntPtr template);

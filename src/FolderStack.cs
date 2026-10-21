@@ -188,20 +188,13 @@ namespace DesktopStacks {
    foreach(string dir in Directory.GetDirectories(folder)){if(System.IO.Path.GetFileName(dir).StartsWith("."))continue;OriginalIcon original;originalIcons.TryGetValue("folder:"+System.IO.Path.GetFileName(dir),out original);list.Add(new Item{Name=System.IO.Path.GetFileName(dir),Path=dir,Target=dir,OriginalSource=dir,Icon=original==null?null:original.icon,Category=true});}
    List<DesktopAutoEntry> automaticEntries;try{automaticEntries=DesktopAutoCollector.ReadEntries(baseDir);}catch{automaticEntries=new List<DesktopAutoEntry>();}
    var automaticLinks=new HashSet<string>(automaticEntries.Select(e=>e.link),StringComparer.OrdinalIgnoreCase);
-   object shell=null;
-   try{
-    Type t=Type.GetTypeFromProgID("WScript.Shell");shell=Activator.CreateInstance(t);
     foreach(string link in Directory.GetFiles(folder,"*.lnk")){
      if(automaticLinks.Contains(link))continue;
-     object shortcut=t.InvokeMember("CreateShortcut",System.Reflection.BindingFlags.InvokeMethod,null,shell,new object[]{link});
-     try{
-      Type s=shortcut.GetType();string target=(string)s.InvokeMember("TargetPath",System.Reflection.BindingFlags.GetProperty,null,shortcut,null);
+     string target;try{target=NativeShortcut.ReadTarget(link);}catch{target=link;}
       string relative=link.Substring(foldersDir.Length+1).Replace('\\','/');string leaf=System.IO.Path.GetFileName(link);OriginalIcon original;if(!originalIcons.TryGetValue(relative,out original))originalIcons.TryGetValue(leaf,out original);
       if(original==null){var matches=originalIcons.Where(kv=>kv.Key.EndsWith("/"+leaf,StringComparison.Ordinal)).Select(kv=>kv.Value).ToArray();if(matches.Length==1)original=matches[0];}
       list.Add(new Item{Name=original!=null&&!string.IsNullOrEmpty(original.displayName)?original.displayName:System.IO.Path.GetFileNameWithoutExtension(link),Path=link,Target=target,OriginalSource=original==null?link:original.source,Icon=original==null?null:original.icon,Thumbnail=original!=null&&original.thumbnail,Category=false});
-     }finally{Marshal.FinalReleaseComObject(shortcut);}
     }
-   }finally{if(shell!=null)Marshal.FinalReleaseComObject(shell);}
    if(string.IsNullOrEmpty(path))return list.OrderBy(i=>{int n=Array.IndexOf(new[]{"左边栏","中间栏","右边栏"},i.Name);return n<0?999:n;}).ThenBy(i=>i.Name,StringComparer.CurrentCulture).ToList();
    string[] order;string group=System.IO.Path.GetFileName(folder);
    var sorted=settings.entries!=null&&settings.entries.TryGetValue(group,out order)?list.OrderBy(i=>{int n=Array.IndexOf(order,System.IO.Path.GetFileName(i.Path));return n<0?9999:n;}).ThenBy(i=>i.Name,StringComparer.CurrentCulture):list.OrderBy(i=>i.Name,StringComparer.CurrentCulture);

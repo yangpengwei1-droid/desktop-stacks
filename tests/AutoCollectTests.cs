@@ -24,12 +24,8 @@ class AutoCollectTests {
   File.WriteAllText(secret,"hidden");File.SetAttributes(secret,FileAttributes.Hidden);File.WriteAllText(temp,"temp");File.WriteAllText(part,"partial");File.WriteAllText(office,"entry");File.WriteAllText(system,"system");File.SetAttributes(system,FileAttributes.System);
   string conflict=Path.Combine(app,"收纳文件夹","左边栏","新合同.txt.lnk");File.WriteAllText(conflict,"不得覆盖已有导航");
   string shortcut=Path.Combine(desktop,"原快捷方式.lnk");
-  Type shellType=Type.GetTypeFromProgID("WScript.Shell");object shell=Activator.CreateInstance(shellType);
-  object link=shellType.InvokeMember("CreateShortcut",System.Reflection.BindingFlags.InvokeMethod,null,shell,new object[]{shortcut});Type linkType=link.GetType();
-  linkType.InvokeMember("TargetPath",System.Reflection.BindingFlags.SetProperty,null,link,new object[]{original});
-  linkType.InvokeMember("Arguments",System.Reflection.BindingFlags.SetProperty,null,link,new object[]{"保留参数"});
-  linkType.InvokeMember("Save",System.Reflection.BindingFlags.InvokeMethod,null,link,null);
-  Marshal.FinalReleaseComObject(link);Marshal.FinalReleaseComObject(shell);byte[] shortcutHash=Hash(shortcut);
+  NativeShortcut.Create(shortcut,original,"保留参数",null,null);byte[] shortcutHash=Hash(shortcut);
+  Assert(NativeShortcut.ReadTarget(shortcut)==original&&NativeShortcut.ReadArguments(shortcut)=="保留参数","Unicode快捷方式目标与参数可回读");
   using(var collector=new DesktopAutoCollector(app,desktop,new[]{original},TimeSpan.FromMilliseconds(60))) {
    collector.Configure(true,"左边栏",null);
    Assert(!collector.ScanNow()&&!Hidden(file),"首次检测不抢先隐藏，等待文件保存稳定");Scan(collector);

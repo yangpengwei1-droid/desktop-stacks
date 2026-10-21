@@ -1,0 +1,28 @@
+name: Windows prototype
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Build and isolated tests
+        shell: powershell
+        run: powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File .\Test.ps1
+      - name: Build clean portable files
+        shell: powershell
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Build.ps1
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: DesktopStacks-windows-prototype
+          path: dist/DesktopStacks/
+          if-no-files-found: error
+          retention-days: 14

@@ -7,7 +7,7 @@ $net=Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319'
 & (Join-Path $net 'csc.exe') /nologo /target:exe /reference:System.Web.Extensions.dll /reference:Microsoft.CSharp.dll ('/out:'+(Join-Path $work 'AutoCollectTests.exe')) (Join-Path $root 'src\DesktopAutoCollect.cs') (Join-Path $root 'tests\AutoCollectTests.cs')
 if($LASTEXITCODE -ne 0){throw 'Collector tests did not compile.'}
 & (Join-Path $work 'AutoCollectTests.exe') (Join-Path $work 'collector') (Join-Path $binary '图标提取.exe')
-if($LASTEXITCODE -ne 0){throw 'Collector integration tests failed.'}
+if($LASTEXITCODE -ne 0){Get-ChildItem -LiteralPath $work -Recurse -File -Filter '测试失败.txt'|ForEach-Object {Get-Content -LiteralPath $_.FullName -Encoding UTF8};throw 'Collector integration tests failed.'}
 $fixture=Join-Path $work 'fixtures'
 foreach($group in @('左边栏','中间栏','右边栏')){$dir=Join-Path $fixture $group;[void][IO.Directory]::CreateDirectory($dir);[IO.File]::WriteAllText((Join-Path $dir '示例资料.txt'),'Public synthetic sample.');[void][IO.Directory]::CreateDirectory((Join-Path $dir '示例文件夹'))}
 & (Join-Path $binary 'Initialize.ps1') -AppDirectory $binary -FixtureRoot $fixture

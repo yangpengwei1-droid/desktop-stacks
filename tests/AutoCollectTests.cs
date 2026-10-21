@@ -23,7 +23,13 @@ class AutoCollectTests {
   File.WriteAllText(file,"测试资料，原件不得移动或改写。");byte[] hash=Hash(file);DateTime written=File.GetLastWriteTimeUtc(file);Directory.CreateDirectory(folder);
   File.WriteAllText(secret,"hidden");File.SetAttributes(secret,FileAttributes.Hidden);File.WriteAllText(temp,"temp");File.WriteAllText(part,"partial");File.WriteAllText(office,"entry");File.WriteAllText(system,"system");File.SetAttributes(system,FileAttributes.System);
   string conflict=Path.Combine(app,"收纳文件夹","左边栏","新合同.txt.lnk");File.WriteAllText(conflict,"不得覆盖已有导航");
-  string shortcut=Path.Combine(desktop,"原快捷方式.lnk");dynamic shell=Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell"));dynamic link=shell.CreateShortcut(shortcut);link.TargetPath=original;link.Arguments="保留参数";link.Save();Marshal.FinalReleaseComObject(link);Marshal.FinalReleaseComObject(shell);byte[] shortcutHash=Hash(shortcut);
+  string shortcut=Path.Combine(desktop,"原快捷方式.lnk");
+  Type shellType=Type.GetTypeFromProgID("WScript.Shell");object shell=Activator.CreateInstance(shellType);
+  object link=shellType.InvokeMember("CreateShortcut",System.Reflection.BindingFlags.InvokeMethod,null,shell,new object[]{shortcut});Type linkType=link.GetType();
+  linkType.InvokeMember("TargetPath",System.Reflection.BindingFlags.SetProperty,null,link,new object[]{original});
+  linkType.InvokeMember("Arguments",System.Reflection.BindingFlags.SetProperty,null,link,new object[]{"保留参数"});
+  linkType.InvokeMember("Save",System.Reflection.BindingFlags.InvokeMethod,null,link,null);
+  Marshal.FinalReleaseComObject(link);Marshal.FinalReleaseComObject(shell);byte[] shortcutHash=Hash(shortcut);
   using(var collector=new DesktopAutoCollector(app,desktop,new[]{original},TimeSpan.FromMilliseconds(60))) {
    collector.Configure(true,"左边栏",null);
    Assert(!collector.ScanNow()&&!Hidden(file),"首次检测不抢先隐藏，等待文件保存稳定");Scan(collector);

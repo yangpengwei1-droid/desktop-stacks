@@ -16,10 +16,16 @@ foreach($group in @('左边栏','中间栏','右边栏')){$dir=Join-Path $fixtur
 & (Join-Path $binary 'Initialize.ps1') -AppDirectory $binary -FixtureRoot $fixture
 $process=Start-Process -FilePath (Join-Path $binary 'DesktopStacks.exe') -ArgumentList ('--self-test "'+(Join-Path $work 'ui.json')+'"') -PassThru -Wait
 if($process.ExitCode -ne 0){throw 'WPF self-test failed. See 最近启动错误.txt in the isolated test directory.'}
+$layerRefs=@('System.Xaml.dll','System.Web.Extensions.dll')|ForEach-Object{'/reference:'+(Join-Path $net $_)}
+$layerRefs+=@('PresentationFramework.dll','PresentationCore.dll','WindowsBase.dll')|ForEach-Object{'/reference:'+(Join-Path (Join-Path $net 'WPF') $_)}
+& (Join-Path $net 'csc.exe') /nologo /target:exe ('/out:'+(Join-Path $binary 'DesktopLayerTests.exe')) ('/reference:'+(Join-Path $binary 'DesktopStacks.exe')) @layerRefs (Join-Path $root 'tests\DesktopLayerTests.cs')
+if($LASTEXITCODE -ne 0){throw 'Desktop layer tests did not compile.'}
+& (Join-Path $binary 'DesktopLayerTests.exe') $binary
+if($LASTEXITCODE -ne 0){throw 'Desktop layer regression tests failed.'}
 $settings=Get-Content -LiteralPath (Join-Path $binary '自动收纳设置.json') -Raw -Encoding UTF8|ConvertFrom-Json
 if($settings.enabled -or $settings.startWithWindows){throw 'First-run settings must be opt-in.'}
 $dry=Join-Path $work 'restore-preview.json'
 & (Join-Path $binary '桌面显示.ps1') -Action Restore -DryRun|Set-Content -LiteralPath $dry -Encoding UTF8
 if((Get-Content -LiteralPath $dry -Raw -Encoding UTF8|ConvertFrom-Json).mutationsExecuted){throw 'DryRun must not mutate state.'}
 if(Test-Path -LiteralPath (Join-Path $binary '桌面显示原状态.json')){throw 'DryRun created a permanent state snapshot.'}
-Write-Output ('PASS: collector, synthetic initialization, WPF, opt-in defaults, restore preview. Results: '+$work)
+Write-Output ('PASS: collector, synthetic initialization, WPF, desktop layer, opt-in defaults, restore preview. Results: '+$work)

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -14,7 +14,7 @@ namespace DesktopStacks {
  public class DesktopPresentationSettings { public bool enabled,restoreNoIcons;public string strategy="desktop-view-layer"; }
  public class DesktopEntryPosition {public int x=24,y=24;}
  public sealed class DesktopPresentation : IDisposable {
-  readonly string directory;readonly Action open;DispatcherTimer timer;Window entry;IntPtr entryHandle,parent;bool ownsView,restoreNoIcons;long stamp=-1;
+  readonly string directory;readonly Action open;DispatcherTimer timer;Window entry;HwndSource entrySource;IntPtr entryHandle,parent;bool ownsView,restoreNoIcons;long stamp=-1;
   public DesktopPresentation(string path,Action onOpen){directory=path;open=onOpen;}
   public static void Apply(bool noIcons){WithDesktop(delegate(object desktop){object document=null;try{document=desktop.GetType().InvokeMember("Document",System.Reflection.BindingFlags.GetProperty,null,desktop,null);uint flags=unchecked((uint)Convert.ToInt64(document.GetType().InvokeMember("FolderFlags",System.Reflection.BindingFlags.GetProperty,null,document,null)));flags=noIcons?flags|0x1000u:flags&~0x1000u;document.GetType().InvokeMember("FolderFlags",System.Reflection.BindingFlags.SetProperty,null,document,new object[]{flags});}finally{Release(document);}});}
   static void Release(object value){if(value!=null&&Marshal.IsComObject(value))try{Marshal.FinalReleaseComObject(value);}catch{}}
@@ -25,6 +25,7 @@ namespace DesktopStacks {
   [ComImport,Guid("CDE725B0-CCC9-4519-917E-325D72FAB4CE"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]interface IFolder {void GetCurrentViewMode();void SetCurrentViewMode();void GetFolder();void Item(int index,out IntPtr item);void ItemCount(uint flags,out int count);void Items();void GetSelectionMarkedItem();void GetFocusedItem();void GetItemPosition(IntPtr item,out POINT point);}
   [StructLayout(LayoutKind.Sequential)]struct POINT {public int X,Y;}
   [StructLayout(LayoutKind.Sequential)]struct RECT {public int Left,Top,Right,Bottom;}
+  [StructLayout(LayoutKind.Sequential)]struct WINDOWPOS {public IntPtr hwnd,after;public int x,y,width,height;public uint flags;}
   [DllImport("shell32.dll",CharSet=CharSet.Unicode)]static extern int SHGetNameFromIDList(IntPtr item,uint kind,out IntPtr name);
   [DllImport("user32.dll")]static extern IntPtr GetParent(IntPtr window);
   [DllImport("user32.dll")]static extern IntPtr GetWindow(IntPtr window,uint command);
@@ -42,12 +43,13 @@ namespace DesktopStacks {
     string path=Path.Combine(directory,"桌面显示模式.json");long next=File.Exists(path)?File.GetLastWriteTimeUtc(path).Ticks:0;var settings=DesktopAutoCollector.ReadJson(path,new DesktopPresentationSettings());
     if(!settings.enabled){if(ownsView){CloseEntry();Apply(settings.restoreNoIcons);ownsView=false;}stamp=next;return;}
     int x,y;IntPtr host=ReadHost(out x,out y);if(host==IntPtr.Zero)throw new IOException("无法取得桌面显示层。");
-    if(next==stamp&&host==parent&&entry!=null&&IsWindow(entryHandle)){KeepDesktopEntryVisible();return;}
-    restoreNoIcons=settings.restoreNoIcons;CloseEntry();CreateEntry(host);Apply(true);SetWindowPos(entryHandle,IntPtr.Zero,0,0,0,0,0x0001|0x0002|0x0010|0x0040|0x0020);entry.UpdateLayout();entry.InvalidateVisual();InvalidateRect(entryHandle,IntPtr.Zero,true);ownsView=true;stamp=next;
+    if(next==stamp&&host==parent&&entry!=null&&IsWindow(entryHandle)){KeepDesktopEntryOnDesktopLayer();return;}
+    restoreNoIcons=settings.restoreNoIcons;CloseEntry();CreateEntry(host);Apply(true);KeepDesktopEntryOnDesktopLayer();entry.UpdateLayout();entry.InvalidateVisual();InvalidateRect(entryHandle,IntPtr.Zero,true);ownsView=true;stamp=next;
    }catch(Exception ex){CloseEntry();try{Apply(false);}catch{}ownsView=false;try{File.WriteAllText(Path.Combine(directory,"桌面视图状态.txt"),"桌面入口未应用，已保留原文件可见："+ex.Message);}catch{}}
   }
   void CreateEntry(IntPtr host){
    entry=new Window{Title="Desktop Stacks · 桌面入口",Width=96,Height=100,Left=24,Top=24,WindowStartupLocation=WindowStartupLocation.Manual,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,AllowsTransparency=true,Background=Brushes.Transparent,ShowInTaskbar=false,ShowActivated=false,Topmost=false};
+   parent=host;entry.SourceInitialized+=delegate{entryHandle=new WindowInteropHelper(entry).Handle;entrySource=HwndSource.FromHwnd(entryHandle);entrySource.AddHook(EntryWindowMessage);};
    var stack=new StackPanel{VerticalAlignment=VerticalAlignment.Center};var icon=new BitmapImage();icon.BeginInit();icon.CacheOption=BitmapCacheOption.OnLoad;icon.UriSource=new Uri(Path.Combine(directory,"入口图标","办公收纳.png"));icon.EndInit();icon.Freeze();stack.Children.Add(new Image{Source=icon,Width=48,Height=48,Margin=new Thickness(0,2,0,5)});
    var text=new TextBlock{Text="Desktop Stacks",FontFamily=new FontFamily("Microsoft YaHei UI"),FontSize=12,Foreground=Brushes.White,TextAlignment=TextAlignment.Center,TextWrapping=TextWrapping.Wrap};text.Effect=new DropShadowEffect{Color=Colors.Black,BlurRadius=3,ShadowDepth=1,Opacity=.9};stack.Children.Add(text);
    var button=new Button{Content=stack,Background=Brushes.Transparent,BorderThickness=new Thickness(0),Cursor=Cursors.Hand,ToolTip="双击打开 Desktop Stacks；按住拖动可调整位置"};System.Windows.Automation.AutomationProperties.SetName(button,"Desktop Stacks 桌面入口");
@@ -58,14 +60,28 @@ namespace DesktopStacks {
    button.PreviewMouseLeftButtonUp+=delegate(object sender,MouseButtonEventArgs e){bool moved=dragging;finish();if(moved)e.Handled=true;};button.LostMouseCapture+=delegate{finish();};
    button.PreviewKeyDown+=delegate(object sender,KeyEventArgs e){if(e.Key==Key.Enter||e.Key==Key.Space){e.Handled=true;open();}};entry.Content=button;
    new WindowInteropHelper(entry).Owner=host;entry.Show();entryHandle=new WindowInteropHelper(entry).Handle;
-   var position=ReadPosition();RECT bounds;GetWindowRect(entryHandle,out bounds);int width=bounds.Right-bounds.Left,height=bounds.Bottom-bounds.Top;ClampPosition(position,width,height);SetWindowPos(entryHandle,IntPtr.Zero,position.x,position.y,0,0,0x0001|0x0010|0x0040);parent=host;WriteStatus();
+   var position=ReadPosition();RECT bounds;GetWindowRect(entryHandle,out bounds);int width=bounds.Right-bounds.Left,height=bounds.Bottom-bounds.Top;ClampPosition(position,width,height);SetWindowPos(entryHandle,IntPtr.Zero,position.x,position.y,0,0,0x0001|0x0004|0x0010|0x0040|0x0200);KeepDesktopEntryOnDesktopLayer();WriteStatus();
   }
   DesktopEntryPosition ReadPosition(){try{return DesktopAutoCollector.ReadJson(Path.Combine(directory,"桌面入口位置.json"),new DesktopEntryPosition())??new DesktopEntryPosition();}catch{return new DesktopEntryPosition();}}
   static void ClampPosition(DesktopEntryPosition position,int width,int height){var area=System.Windows.Forms.Screen.FromPoint(new System.Drawing.Point(position.x,position.y)).WorkingArea;position.x=Math.Max(area.Left,Math.Min(position.x,area.Right-width));position.y=Math.Max(area.Top,Math.Min(position.y,area.Bottom-height));}
   void SaveEntryPosition(){if(entryHandle==IntPtr.Zero)return;try{RECT bounds;GetWindowRect(entryHandle,out bounds);var position=new DesktopEntryPosition{x=bounds.Left,y=bounds.Top};ClampPosition(position,bounds.Right-bounds.Left,bounds.Bottom-bounds.Top);SetWindowPos(entryHandle,IntPtr.Zero,position.x,position.y,0,0,0x0001|0x0004|0x0010);string path=Path.Combine(directory,"桌面入口位置.json"),temp=path+".tmp";File.WriteAllText(temp,new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(position));if(File.Exists(path))File.Replace(temp,path,null);else File.Move(temp,path);WriteStatus();}catch(Exception ex){try{File.WriteAllText(Path.Combine(directory,"桌面视图状态.txt"),"入口位置未能记住，下次启动会使用上次位置："+ex.Message);}catch{}}}
   void WriteStatus(){RECT bounds;GetWindowRect(entryHandle,out bounds);File.WriteAllText(Path.Combine(directory,"桌面入口状态.json"),new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(new{strategy="desktop-owned-window",ownedByDesktop=GetWindow(entryHandle,4)==parent,visible=IsWindowVisible(entryHandle),visualConfirmationRequired=true,entryHandle=entryHandle.ToInt64(),parentHandle=parent.ToInt64(),x=bounds.Left,y=bounds.Top,fileAttributesChanged=0}));}
-  void KeepDesktopEntryVisible(){var text=new System.Text.StringBuilder(128);IntPtr active=GetForegroundWindow();GetClassName(active,text,text.Capacity);string name=text.ToString();if(active==parent||name=="Progman"||name=="WorkerW"||name=="SHELLDLL_DefView"){if(entry.WindowState==WindowState.Minimized)entry.WindowState=WindowState.Normal;SetWindowPos(entryHandle,IntPtr.Zero,0,0,0,0,0x0001|0x0002|0x0010|0x0040);}}
-  void CloseEntry(){if(entry!=null){try{entry.Close();}catch{}entry=null;}entryHandle=IntPtr.Zero;parent=IntPtr.Zero;}
+  // Keep the launcher directly above its desktop owner, below ordinary app windows.
+  // HWND_TOP is wrong even for a non-topmost window: it covers other normal windows.
+  IntPtr DesktopPredecessor(){return parent!=IntPtr.Zero&&IsWindow(parent)?GetWindow(parent,3):IntPtr.Zero;}
+  IntPtr EntryWindowMessage(IntPtr window,int message,IntPtr wParam,IntPtr lParam,ref bool handled){
+   if(message==0x0046&&lParam!=IntPtr.Zero&&parent!=IntPtr.Zero&&IsWindow(parent)){
+    var position=(WINDOWPOS)Marshal.PtrToStructure(lParam,typeof(WINDOWPOS));
+    if((position.flags&0x0004)==0){IntPtr before=DesktopPredecessor();if(before==window)position.flags|=0x0004;else position.after=before==IntPtr.Zero?new IntPtr(1):before;Marshal.StructureToPtr(position,lParam,false);}
+   }
+   return IntPtr.Zero;
+  }
+  void KeepDesktopEntryOnDesktopLayer(){
+   if(entry==null||entryHandle==IntPtr.Zero||parent==IntPtr.Zero||!IsWindow(parent))return;
+   if(entry.WindowState==WindowState.Minimized){var text=new System.Text.StringBuilder(128);IntPtr active=GetForegroundWindow();GetClassName(active,text,text.Capacity);string name=text.ToString();if(active==parent||name=="Progman"||name=="WorkerW"||name=="SHELLDLL_DefView")entry.WindowState=WindowState.Normal;}
+   IntPtr before=DesktopPredecessor();if(before!=entryHandle)SetWindowPos(entryHandle,before==IntPtr.Zero?new IntPtr(1):before,0,0,0,0,0x0001|0x0002|0x0010|0x0200);
+  }
+  void CloseEntry(){if(entrySource!=null){try{entrySource.RemoveHook(EntryWindowMessage);}catch{}entrySource=null;}if(entry!=null){try{entry.Close();}catch{}entry=null;}entryHandle=IntPtr.Zero;parent=IntPtr.Zero;}
   public void Dispose(){if(timer!=null)timer.Stop();CloseEntry();if(ownsView){try{Apply(restoreNoIcons);}catch{}ownsView=false;}}
  }
 }

@@ -9,7 +9,7 @@ $common=@('/nologo','/optimize+')+@($refs|ForEach-Object {'/reference:'+$_})
 $sources=Join-Path $PSScriptRoot 'src'
 & (Join-Path $net 'csc.exe') @common /target:exe ('/out:'+(Join-Path $output '图标提取.exe')) (Join-Path $sources 'ShellImage.cs')
 if($LASTEXITCODE -ne 0){throw 'Icon helper compilation failed.'}
-& (Join-Path $net 'csc.exe') @common /target:winexe /platform:anycpu ('/out:'+(Join-Path $output 'DesktopStacks.exe')) ('/win32icon:'+(Join-Path $PSScriptRoot 'assets\desktop-stacks.ico')) ('/win32manifest:'+(Join-Path $sources 'app.manifest')) (Join-Path $sources 'FolderStack.cs') (Join-Path $sources 'DesktopAutoCollect.cs') (Join-Path $sources 'ShellLink.cs') (Join-Path $sources 'DesktopPresentation.cs')
+& (Join-Path $net 'csc.exe') @common /target:winexe /platform:anycpu ('/out:'+(Join-Path $output 'DesktopStacks.exe')) ('/win32icon:'+(Join-Path $PSScriptRoot 'assets\desktop-stacks.ico')) ('/win32manifest:'+(Join-Path $sources 'app.manifest')) (Join-Path $sources 'FolderStack.cs') (Join-Path $sources 'DesktopAutoCollect.cs') (Join-Path $sources 'ShellLink.cs') (Join-Path $sources 'DesktopPresentation.cs') (Join-Path $sources 'RecycleService.cs') (Join-Path $sources 'StackSelection.cs')
 if($LASTEXITCODE -ne 0){throw 'Desktop Stacks compilation failed.'}
 foreach($name in @('Initialize.ps1','DesktopLayout.cs','桌面显示.ps1','恢复旧隐藏属性.ps1','Start-Resident.ps1')){Copy-Item -LiteralPath (Join-Path (Join-Path $PSScriptRoot 'scripts') $name) -Destination (Join-Path $output $name) -Force}
 [void][IO.Directory]::CreateDirectory((Join-Path $output '入口图标'))

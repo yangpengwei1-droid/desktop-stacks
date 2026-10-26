@@ -30,7 +30,7 @@ namespace DesktopStacks {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool AllowSetForegroundWindow(uint processId);
  }
- public class StackWindow : Window {
+ public partial class StackWindow : Window {
   public const double BaseWidth=840, BaseHeight=440;
   readonly string baseDir, foldersDir;
   readonly JavaScriptSerializer json=new JavaScriptSerializer();
@@ -73,7 +73,7 @@ namespace DesktopStacks {
    foreach(var reference in originalIcons.Values)originalStamps[reference.source]=reference.stamp;
    presentation=new DesktopPresentation(baseDir,delegate{Toggle();});
    automatic=new DesktopAutoCollector(baseDir,Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),originalIcons.Values.Select(v=>v.source),TimeSpan.FromSeconds(3));
-   automatic.Changed=delegate{if(!Dispatcher.HasShutdownStarted)Dispatcher.BeginInvoke(new Action(delegate{if(IsVisible&&!menuOpen&&!closing&&!string.IsNullOrEmpty(CurrentPath)){double offset=scroller.VerticalOffset;ShowPage(CurrentPath,false);FinishMotion();UpdateLayout();scroller.ScrollToVerticalOffset(offset);}}));};
+   automatic.Changed=delegate{if(!Dispatcher.HasShutdownStarted)Dispatcher.BeginInvoke(new Action(delegate{if(IsVisible&&!menuOpen&&!closing&&!selectionMode&&!deleteConfirmationOpen&&!deletionRunning&&!string.IsNullOrEmpty(CurrentPath)){double offset=scroller.VerticalOffset;ShowPage(CurrentPath,false);FinishMotion();UpdateLayout();scroller.ScrollToVerticalOffset(offset);}}));};
    Width=BaseWidth;Height=BaseHeight;WindowStyle=WindowStyle.None;ResizeMode=ResizeMode.NoResize;
    AllowsTransparency=true;Background=Brushes.Transparent;ShowInTaskbar=false;Topmost=true;
    Title="办公收纳";FontFamily=new FontFamily("Microsoft YaHei UI");FontSize=13;Foreground=Brush("#29453A");
@@ -92,15 +92,16 @@ namespace DesktopStacks {
    var tools=new StackPanel{Orientation=Orientation.Horizontal};Grid.SetColumn(tools,2);header.Children.Add(tools);
    fan=SmallButton("扇形展开",FanGlyph());fan.Click+=delegate{SetMode("fan");};tools.Children.Add(fan);
    grid=SmallButton("网格展开",GridGlyph());grid.Click+=delegate{SetMode("grid");};tools.Children.Add(grid);
+   InitializeSelectionTools(tools);
    var more=SmallButton("收纳选项",MoreGlyph());tools.Children.Add(more);
    var close=SmallButton("收起",CloseGlyph());close.Margin=new Thickness(8,0,0,0);tools.Children.Add(close);close.Click+=delegate{Dismiss();};
    menu=BuildMenu();more.ContextMenu=menu;more.Click+=delegate{menu.PlacementTarget=more;menu.IsOpen=true;};
    surface.Children.Add(header);
    canvas=new Canvas{ClipToBounds=false,Width=720};scroller=new ScrollViewer{Content=canvas,HorizontalContentAlignment=HorizontalAlignment.Center,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};Grid.SetRow(scroller,1);surface.Children.Add(scroller);
-   footer=new TextBlock{Text="选择文件夹打开原位置",FontSize=11,Foreground=Brush("#5D7165"),HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center};Grid.SetRow(footer,2);surface.Children.Add(footer);
+   footer=new TextBlock{Text="选择文件夹打开原位置",FontSize=11,Foreground=Brush("#5D7165"),HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center};Grid.SetRow(footer,2);surface.Children.Add(footer);InitializeRecyclePanel();
    root.MouseDown+=delegate(object s,MouseButtonEventArgs e){if(e.OriginalSource==root)Dismiss();};
    PreviewKeyDown+=OnKey;
-   Deactivated+=delegate{Dispatcher.BeginInvoke(new Action(delegate{if(!menuOpen&&!TestMode&&!captureMode&&IsVisible)Dismiss();}),DispatcherPriority.Background);};
+   Deactivated+=delegate{Dispatcher.BeginInvoke(new Action(delegate{if(!menuOpen&&!TestMode&&!captureMode&&!deleteConfirmationOpen&&!deletionRunning&&IsVisible)Dismiss();}),DispatcherPriority.Background);};
    Closing+=delegate(object s,System.ComponentModel.CancelEventArgs e){if(!Program.Quitting){e.Cancel=true;Dismiss();}};
    KeyboardNavigation.SetTabNavigation(surface,KeyboardNavigationMode.Cycle);
    KeyboardNavigation.SetDirectionalNavigation(canvas,KeyboardNavigationMode.Cycle);
@@ -195,6 +196,7 @@ namespace DesktopStacks {
      string target;try{target=NativeShortcut.ReadTarget(link);}catch{target=link;}
       string relative=link.Substring(foldersDir.Length+1).Replace('\\','/');string leaf=System.IO.Path.GetFileName(link);OriginalIcon original;if(!originalIcons.TryGetValue(relative,out original))originalIcons.TryGetValue(leaf,out original);
       if(original==null){var matches=originalIcons.Where(kv=>kv.Key.EndsWith("/"+leaf,StringComparison.Ordinal)).Select(kv=>kv.Value).ToArray();if(matches.Length==1)original=matches[0];}
+      if(original!=null&&!OriginalExists(original.source))continue;
       list.Add(new Item{Name=original!=null&&!string.IsNullOrEmpty(original.displayName)?original.displayName:System.IO.Path.GetFileNameWithoutExtension(link),Path=link,Target=target,OriginalSource=original==null?link:original.source,Icon=original==null?null:original.icon,Thumbnail=original!=null&&original.thumbnail,Category=false});
     }
    if(string.IsNullOrEmpty(path))return list.OrderBy(i=>{int n=Array.IndexOf(new[]{"左边栏","中间栏","右边栏"},i.Name);return n<0?999:n;}).ThenBy(i=>i.Name,StringComparer.CurrentCulture).ToList();
@@ -205,6 +207,7 @@ namespace DesktopStacks {
    return list;
   }
   public void ShowPage(string path,bool initial){
+   PrepareSelectionPage(path);
    revision++;if(motion!=null){motion.Remove(this);motion=null;}
    CurrentPath=path??"";closing=false;paper.Opacity=1;paperScale.ScaleX=paperScale.ScaleY=1;
    items.Clear();transforms.Clear();canvas.Children.Clear();scroller.ScrollToTop();
@@ -216,9 +219,9 @@ namespace DesktopStacks {
    fan.Visibility=grid.Visibility=home?Visibility.Visible:Visibility.Collapsed;
    fan.Background=settings.mode=="fan"?Brush("#E1EADB"):Brushes.Transparent;grid.Background=settings.mode=="grid"?Brush("#E1EADB"):Brushes.Transparent;
    footer.Text=home?"按桌面左、中、右区域收纳 · Esc 收起":"点击打开原位置 · Esc 返回上一层";
-   var entries=ReadItems(CurrentPath);if(entries.Count>8)useFan=false;
+   var entries=ReadItems(CurrentPath);UpdateSelection();if(entries.Count>8)useFan=false;
    if(!home)footer.Text=entries.Count+(entries.Any(i=>i.Automatic)?" 项 · 原有顺序保留，新文件追加末尾 · Esc 返回上一层":" 项 · 保留原桌面顺序 · Esc 返回上一层");
-   if(entries.Count==0){canvas.Children.Add(new TextBlock{Text="这里还没有入口。可从选项打开收纳文件夹，加入快捷方式。",Margin=new Thickness(30,80,30,0),TextWrapping=TextWrapping.Wrap});return;}
+   if(entries.Count==0){canvas.Children.Add(new TextBlock{Text="这里暂时没有可用项目。新项目按收纳设置显示，已删除项目可从 Windows 回收站恢复。",Margin=new Thickness(30,80,30,0),TextWrapping=TextWrapping.Wrap});return;}
    int cols=4;int configured;if(!home&&settings.columns!=null&&settings.columns.TryGetValue(System.IO.Path.GetFileName(CurrentPath),out configured))cols=Math.Max(1,Math.Min(6,configured));
    double columnStep=contentWidth/cols;double tileWidth=home?168:columnStep-8;double textWidth=tileWidth-10;double gap=176;
    if(useFan)gap=Math.Min(176,(contentWidth-20)/entries.Count);
@@ -239,14 +242,15 @@ namespace DesktopStacks {
     var button=new Button{Width=tileWidth,Height=home?146:rowHeights[i/cols],Style=ButtonStyle(13),ToolTip=item.Name+"\n"+(item.Category?"打开此收纳文件夹":IsNamespace(item.OriginalSource)?"Windows系统位置":item.Target),Tag=item};
     var stack=new StackPanel{Width=tileWidth-10,VerticalAlignment=VerticalAlignment.Center};
     var image=new Image{Width=iconSize,Height=iconSize,Stretch=Stretch.Uniform};ApplyOriginalIcon(image,item);
-    stack.Children.Add(image);stack.Children.Add(new TextBlock{Text=item.Name,FontSize=12.5,TextAlignment=TextAlignment.Center,TextWrapping=TextWrapping.Wrap,TextTrimming=TextTrimming.CharacterEllipsis,MaxHeight=68,Margin=new Thickness(2,5,2,0),LineHeight=17});button.Content=stack;
+    stack.Children.Add(image);stack.Children.Add(new TextBlock{Text=item.Name,FontSize=12.5,TextAlignment=TextAlignment.Center,TextWrapping=TextWrapping.Wrap,TextTrimming=TextTrimming.CharacterEllipsis,MaxHeight=68,Margin=new Thickness(2,5,2,0),LineHeight=17});AttachSelectionTile(button,item,stack);
     button.GotKeyboardFocus+=delegate{button.BringIntoView();};
     System.Windows.Automation.AutomationProperties.SetName(button,item.Name);
-    button.Click+=delegate(object sender,RoutedEventArgs e){e.Handled=true;var selected=(Item)((Button)sender).Tag;if(selected.Category)ShowPage(selected.Path,false);else OpenItem(selected);};
-    button.MouseRightButtonUp+=delegate(object sender,MouseButtonEventArgs e){var selected=(Item)((Button)sender).Tag;Launch(selected.Category?selected.Path:System.IO.Path.GetDirectoryName(selected.Path));e.Handled=true;};
+    button.Click+=delegate(object sender,RoutedEventArgs e){e.Handled=true;var selected=(Item)((Button)sender).Tag;HandleItemClick(selected);};
+    button.MouseRightButtonUp+=delegate(object sender,MouseButtonEventArgs e){var selected=(Item)((Button)sender).Tag;ShowItemMenu((Button)sender,selected);e.Handled=true;};
     Canvas.SetLeft(button,x);Canvas.SetTop(button,y);canvas.Children.Add(button);items.Add(button);
     var trans=new TransformGroup();trans.Children.Add(new ScaleTransform(1,1));trans.Children.Add(new TranslateTransform(0,0));button.RenderTransformOrigin=new Point(.5,.5);button.RenderTransform=trans;transforms.Add(trans);
    }
+   UpdateSelection();
    BeginOpen(initial,useFan);
    RecordState();
    if(!captureMode&&items.Count>0)Dispatcher.BeginInvoke(new Action(delegate{items[0].Focus();}),DispatcherPriority.Input);
@@ -286,6 +290,7 @@ namespace DesktopStacks {
   }
   public void FinishMotion(){if(motion!=null)motion.SeekAlignedToLastTick(this,TimeSpan.FromMilliseconds(600),TimeSeekOrigin.BeginTime);UpdateLayout();}
   public void Dismiss(){
+   if(deletionRunning)return;
    if(closing||!IsVisible)return;closing=true;long ticket=++revision;
    double paperOpacity=paper.Opacity,scaleX=paperScale.ScaleX,scaleY=paperScale.ScaleY;
    var positions=new List<double[]>();
@@ -330,7 +335,7 @@ namespace DesktopStacks {
    originX=activeAnchor.X-Left;originY=activeAnchor.Y-Top;
    paper.RenderTransformOrigin=new Point(Math.Max(0,Math.Min(1,originX/Width)),originY<Height/2?0:1);
   }
-  void OnKey(object sender,KeyEventArgs e){if(e.Key==Key.Escape||e.Key==Key.Back){Escape();e.Handled=true;}}
+  void OnKey(object sender,KeyEventArgs e){if(HandleSelectionKey(e)){e.Handled=true;return;}if(e.Key==Key.Escape||e.Key==Key.Back){Escape();e.Handled=true;}}
   public void Escape(){if(!string.IsNullOrEmpty(CurrentPath))ShowPage("",false);else Dismiss();}
   public void ChooseForTest(int i){items[i].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));}
   void OpenItem(Item item){

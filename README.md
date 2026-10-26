@@ -45,6 +45,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Build.ps1
 .\dist\DesktopStacks\DesktopStacks.exe
 ```
 
+从开发工具或会清理子进程的终端中启动常驻实例时，使用构建包内的独立启动入口：
+
+```powershell
+.\dist\DesktopStacks\Start-Resident.ps1 -Background
+```
+
+它使用 Windows 的独立进程创建接口，校验程序不属于调用工具的 Job，并记录本机 `resident-launch.jsonl`；不新增服务或计划任务。普通双击及 Windows 登录启动仍使用原 exe。若旧实例仍属于临时 Job，应先从程序菜单正常退出，再使用此入口启动。
+
 首次运行只初始化当前用户桌面**可见**项目的导航，并增加 `Desktop Stacks` 入口。**桌面收起、自动收纳新文件、登录启动默认均关闭**。在菜单中按需要启用；程序退出后停止检测，下次运行可补录新增项目。
 
 要采用自定义分区，可在首次运行前初始化：

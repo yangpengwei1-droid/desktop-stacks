@@ -9,6 +9,7 @@ Read README.md and docs/DESIGN.md for product intent. This public repository is 
 - Keep the launcher directly above its desktop owner and below ordinary windows, including on creation, focus and desktop clicks. Constrain WM_WINDOWPOSCHANGING and preserve owner Z order. Never use HWND_TOP as a visibility repair; Topmost=false alone does not prevent covering other normal windows. DesktopLayerTests uses synthetic windows without changing the real desktop view.
 - Do not start collection, create login startup, run a real restore/hide or launch user files as part of tests. Test.ps1 uses a unique work directory.
 - Build.ps1 is the only build entry. Use Windows PowerShell 5.1 and .NET Framework; Chinese PowerShell sources must retain UTF-8 BOM.
+- Start maintained resident instances with scripts/Start-Resident.ps1 (also shipped by Build.ps1). It uses Win32_Process.Create and verifies IsProcessInJob=false, executable path and PID; Start-Process can inherit a tool cleanup job even after its invoking command has returned. Ordinary Explorer launches and login shortcuts stay unchanged. Keep necessary installed launcher copies identical. Tests use only bounded synthetic probe processes and do not launch a real collector or create login startup.
 - Keep source, docs, bootstrap scripts and restoration logic aligned. Existing registry keys must never be recreated with New-Item -Force.
 - The app is an early prototype; do not claim untested Windows versions, mixed-DPI setups or blanket automation compatibility.
 

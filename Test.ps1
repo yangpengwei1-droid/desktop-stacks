@@ -7,6 +7,18 @@ if($supported -notcontains '{4a2f28e3-53b9-4441-ba9c-d69d4a4a6e38}' -or $support
 $binary=Join-Path $work 'DesktopStacks'
 & (Join-Path $root 'Build.ps1') -OutputDirectory $binary
 $net=Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319'
+& (Join-Path $net 'csc.exe') /nologo /target:winexe /platform:x64 /reference:System.Web.Extensions.dll ('/out:'+(Join-Path $work 'ResidentProbe.exe')) (Join-Path $root 'tests\ResidentProbe.cs')
+if($LASTEXITCODE -ne 0){throw 'Resident probe did not compile.'}
+$probeResult=Join-Path $work 'resident-probe.json';$launchLog=Join-Path $work 'resident-launch.jsonl'
+$argumentSamples=@('with spaces','quote"value','C:\ends-with-slash\','')
+$firstLaunch=& (Join-Path $binary 'Start-Resident.ps1') -ExecutablePath (Join-Path $work 'ResidentProbe.exe') -ArgumentList (@($probeResult)+$argumentSamples) -LogPath $launchLog|ConvertFrom-Json
+try{
+ for($attempt=0;$attempt -lt 40 -and !(Test-Path -LiteralPath $probeResult);$attempt++){Start-Sleep -Milliseconds 100}
+ $probe=Get-Content -LiteralPath $probeResult -Raw|ConvertFrom-Json
+ $secondLaunch=& (Join-Path $binary 'Start-Resident.ps1') -ExecutablePath (Join-Path $work 'ResidentProbe.exe') -ArgumentList @($probeResult) -LogPath $launchLog|ConvertFrom-Json
+ if($probe.inJob -or $firstLaunch.inJob -or $firstLaunch.processId -ne $secondLaunch.processId -or $secondLaunch.status -ne 'already-running'){throw 'Independent resident launch or reuse failed.'}
+ if($probe.arguments.Count -ne $argumentSamples.Count -or [string]::Join([char]0,$probe.arguments) -ne [string]::Join([char]0,$argumentSamples)){throw 'Resident process arguments did not round-trip.'}
+}finally{[IO.File]::WriteAllText($probeResult+'.stop','stop')}
 & (Join-Path $net 'csc.exe') /nologo /debug+ /target:exe /reference:System.Web.Extensions.dll ('/out:'+(Join-Path $work 'AutoCollectTests.exe')) (Join-Path $root 'src\DesktopAutoCollect.cs') (Join-Path $root 'src\ShellLink.cs') (Join-Path $root 'tests\AutoCollectTests.cs')
 if($LASTEXITCODE -ne 0){throw 'Collector tests did not compile.'}
 & (Join-Path $work 'AutoCollectTests.exe') (Join-Path $work 'collector') (Join-Path $binary '图标提取.exe')
@@ -28,4 +40,4 @@ $dry=Join-Path $work 'restore-preview.json'
 & (Join-Path $binary '桌面显示.ps1') -Action Restore -DryRun|Set-Content -LiteralPath $dry -Encoding UTF8
 if((Get-Content -LiteralPath $dry -Raw -Encoding UTF8|ConvertFrom-Json).mutationsExecuted){throw 'DryRun must not mutate state.'}
 if(Test-Path -LiteralPath (Join-Path $binary '桌面显示原状态.json')){throw 'DryRun created a permanent state snapshot.'}
-Write-Output ('PASS: collector, synthetic initialization, WPF, desktop layer, opt-in defaults, restore preview. Results: '+$work)
+Write-Output ('PASS: independent resident launch, collector, synthetic initialization, WPF, desktop layer, opt-in defaults, restore preview. Results: '+$work)
